@@ -1,0 +1,35 @@
+{
+  "name": "@frkr-io/sdk-node",
+  "version": "0.1.0",
+  "description": "frkr SDK for Node.js - Mirror API traffic to frkr for testing and replay",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "frkr",
+    "sdk",
+    "api",
+    "mirroring",
+    "traffic-mirroring",
+    "testing",
+    "express",
+    "middleware"
+  ],
+  "author": "frkr-io",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/frkr-io/frkr-sdk-node.git"
+  },
+  "bugs": {
+    "url": "https://github.com/frkr-io/frkr-sdk-node/issues"
+  },
+  "homepage": "https://github.com/frkr-io/frkr-sdk-node#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}
