@@ -101,10 +101,80 @@ function getStreamId(config, req) {
  * @param {string} [config.password] - Basic auth password (default: 'testpass' or FRKR_PASSWORD)
  * @returns {Function} Express middleware function
  */
+const { Issuer } = require('openid-client');
+
+// Token cache
+let tokenCache = {
+  accessToken: null,
+  expiresAt: 0
+};
+
+// Issuer cache to avoid rediscovery on every request
+let issuerCache = null;
+
+/**
+ * Fetches an access token using Client Credentials grant with openid-client.
+ * 
+ * @param {Object} config - SDK configuration
+ * @returns {Promise<string>} Access token
+ */
+async function getAccessToken(config) {
+  // Return cached token if valid (with 60s buffer)
+  if (tokenCache.accessToken && Date.now() < tokenCache.expiresAt - 60000) {
+    return tokenCache.accessToken;
+  }
+
+  try {
+    // 1. Discover Issuer (if not cached)
+    // Prefer 'issuer' config, fall back to 'authDomain' construction
+    const issuerUrl = config.issuer || (config.authDomain ? `https://${config.authDomain}` : 'https://dev-frkr.us.auth0.com');
+    
+    if (!issuerCache) {
+      issuerCache = await Issuer.discover(issuerUrl);
+    }
+
+    // 2. Create Client
+    const client = new issuerCache.Client({
+      client_id: config.clientId,
+      client_secret: config.clientSecret
+    });
+
+    // 3. Grant Client Credentials
+    const audience = config.audience || 'https://api.frkr.io';
+    const tokenSet = await client.grant({
+      grant_type: 'client_credentials',
+      audience: audience
+    });
+
+    // 4. Cache Token
+    if (tokenSet.access_token) {
+      tokenCache.accessToken = tokenSet.access_token;
+      // expires_in is in seconds
+      if (tokenSet.expires_in) {
+        tokenCache.expiresAt = Date.now() + (tokenSet.expires_in * 1000);
+      } else {
+        // Default to 1 hour if not provided
+        tokenCache.expiresAt = Date.now() + 3600000;
+      }
+      return tokenSet.access_token;
+    }
+    
+    throw new Error('No access_token received from provider');
+
+  } catch (err) {
+    console.error('Failed to fetch access token:', err.message);
+    throw err;
+  }
+}
+
 function mirror(config = {}) {
   const ingestGatewayUrl = config.ingestGatewayUrl || process.env.FRKR_INGEST_URL || 'http://localhost:8082';
   const username = config.username || process.env.FRKR_USERNAME || 'testuser';
   const password = config.password || process.env.FRKR_PASSWORD || 'testpass';
+  
+  // M2M Config
+  const clientId = config.clientId || process.env.FRKR_CLIENT_ID;
+  const clientSecret = config.clientSecret || process.env.FRKR_CLIENT_SECRET;
 
   return async (req, res, next) => {
     // Determine stream ID for this request
@@ -131,8 +201,20 @@ function mirror(config = {}) {
     };
 
     // Build auth header
-    const credentials = Buffer.from(`${username}:${password}`).toString('base64');
-    const authHeader = `Basic ${credentials}`;
+    let authHeader;
+    try {
+      if (clientId && clientSecret) {
+        const token = await getAccessToken({ ...config, clientId, clientSecret });
+        authHeader = `Bearer ${token}`;
+      } else {
+        const credentials = Buffer.from(`${username}:${password}`).toString('base64');
+        authHeader = `Basic ${credentials}`;
+      }
+    } catch (err) {
+      // If auth fails, we probably shouldn't block the main request, but we can't mirror.
+      // We already logged the error in getAccessToken if it failed there.
+      return next();
+    }
 
     // Send to Ingest Gateway (fire and forget)
     axios.post(
