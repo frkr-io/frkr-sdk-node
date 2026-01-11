@@ -22,12 +22,16 @@ npm install @frkr-io/sdk-node
 - Node.js 14+
 - Express.js (or compatible framework)
 - A running frkr instance (or use frkr CLI for local development)
+- OIDC Client Credentials (Client ID and Secret) OR Basic Auth credentials
+- Supported Frameworks: Express, NestJS, Fastify, Vanilla Node.js
 
 ## Usage
 
+The following examples assume Express.js. For other frameworks, see the [Framework Integration](#framework-integration) section.
+
 ### Basic Usage (Single Stream)
 
-All requests go to the same stream:
+All requests go to the same stream using OIDC Client Credentials (recommended):
 
 ```javascript
 const express = require('express');
@@ -40,8 +44,10 @@ app.use(express.json());
 app.use(mirror({
   ingestGatewayUrl: 'http://localhost:8082',
   streamId: 'my-api',
-  username: 'testuser',
-  password: 'testpass'
+  // OIDC Client Credentials
+  clientId: 'YOUR_CLIENT_ID',
+  clientSecret: 'YOUR_CLIENT_SECRET',
+  authDomain: 'your-auth-domain.com' // Required if issuer is not provided
 }));
 
 app.get('/api/users', (req, res) => {
@@ -70,8 +76,8 @@ app.use(mirror({
     // Catch-all wildcard (lowest priority, matches any unmatched path)
     '*': 'default-stream'
   },
-  username: 'testuser',
-  password: 'testpass'
+  clientId: 'YOUR_CLIENT_ID',
+  clientSecret: 'YOUR_CLIENT_SECRET'
 }));
 ```
 
@@ -102,8 +108,8 @@ app.use(mirror({
     if (req.method === 'POST') return 'write-stream';
     return 'default-stream';
   },
-  username: 'testuser',
-  password: 'testpass'
+  clientId: 'YOUR_CLIENT_ID',
+  clientSecret: 'YOUR_CLIENT_SECRET'
 }));
 ```
 
@@ -116,8 +122,10 @@ All configuration can be provided via environment variables (for single streamId
 ```bash
 export FRKR_INGEST_URL="http://localhost:8082"
 export FRKR_STREAM_ID="my-api"
-export FRKR_USERNAME="testuser"
-export FRKR_PASSWORD="testpass"
+# OIDC Credentials
+export FRKR_CLIENT_ID="your-client-id"
+export FRKR_CLIENT_SECRET="your-client-secret"
+export FRKR_AUTH_DOMAIN="your-auth-domain.com"
 ```
 
 When using environment variables, `streamId` must be a string (single stream). For route-based or function-based routing, use the `streamId` parameter in the configuration object.
@@ -128,8 +136,104 @@ When using environment variables, `streamId` must be a string (single stream). F
 |--------|------|---------|-------------|
 | `ingestGatewayUrl` | string | `http://localhost:8082` or `FRKR_INGEST_URL` | Ingest Gateway URL |
 | `streamId` | string \| object \| function | `FRKR_STREAM_ID` | Stream ID configuration:<br>- **String**: All requests go to this stream<br>- **Object**: Route-based mapping `{ '/path': 'stream-id', '/api/*': 'default', '*': 'catch-all' }`<br>- **Function**: Dynamic routing `(req) => 'stream-id'` |
-| `username` | string | `testuser` or `FRKR_USERNAME` | Basic auth username |
-| `password` | string | `testpass` or `FRKR_PASSWORD` | Basic auth password |
+| `clientId` | string | `FRKR_CLIENT_ID` | OIDC Client ID |
+| `clientSecret` | string | `FRKR_CLIENT_SECRET` | OIDC Client Secret |
+| `authDomain` | string | - | OIDC Auth Domain (constructs issuer URL) |
+| `issuer` | string | - | Full OIDC Issuer URL (overrides authDomain) |
+| `audience` | string | `https://api.frkr.io` | API Audience |
+| `username` | string | `testuser` or `FRKR_USERNAME` | Basic auth username (Alternative) |
+| `password` | string | `testpass` or `FRKR_PASSWORD` | Basic auth password (Alternative) |
+
+
+## Framework Integration
+
+### NestJS
+
+In your `main.ts` or a global middleware module:
+
+```typescript
+import { mirror } from '@frkr-io/sdk-node';
+
+// In main.ts
+const app = await NestFactory.create(AppModule);
+app.use(mirror({
+  ingestGatewayUrl: 'http://localhost:8082',
+  streamId: 'nestjs-app',
+  clientId: 'YOUR_CLIENT_ID',
+  clientSecret: 'YOUR_CLIENT_SECRET'
+}));
+await app.listen(3000);
+```
+
+### Fastify
+
+Use `@fastify/express` to adapt the middleware, or `midie`:
+
+```javascript
+const fastify = require('fastify')();
+
+await fastify.register(require('@fastify/express'));
+
+fastify.use(mirror({
+  ingestGatewayUrl: 'http://localhost:8082',
+  streamId: 'fastify-app',
+  clientId: 'YOUR_CLIENT_ID',
+  clientSecret: 'YOUR_CLIENT_SECRET'
+}));
+
+fastify.get('/', (req, reply) => {
+  reply.send({ hello: 'world' });
+});
+```
+
+### Vanilla Node.js
+
+The SDK can be used with a standard `http.createServer`:
+
+```javascript
+const http = require('http');
+const { mirror } = require('@frkr-io/sdk-node');
+
+const mirrorMiddleware = mirror({
+  ingestGatewayUrl: 'http://localhost:8082',
+  streamId: 'vanilla-node',
+  clientId: 'YOUR_CLIENT_ID',
+  clientSecret: 'YOUR_CLIENT_SECRET'
+});
+
+const server = http.createServer((req, res) => {
+  // Run middleware manually
+  mirrorMiddleware(req, res, () => {
+    // Continue with your logic
+    res.writeHead(200);
+    res.end('Hello World');
+  });
+});
+
+server.listen(3000);
+```
+
+## Configuration Options
+
+
+## Basic Authentication
+
+If you prefer to use Basic Authentication (e.g. for local development with `frkr-cli`), you can provide `username` and `password` instead of client credentials.
+
+```javascript
+app.use(mirror({
+  ingestGatewayUrl: 'http://localhost:8082',
+  streamId: 'my-api',
+  username: 'testuser',
+  password: 'testpass'
+}));
+```
+
+Or via environment variables:
+```bash
+export FRKR_USERNAME="testuser"
+export FRKR_PASSWORD="testpass"
+```
 
 ## Route Matching Details
 
